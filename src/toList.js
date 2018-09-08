@@ -5,7 +5,7 @@ const fs = require('fs')
 const input = JSON.parse(fs.readFileSync('/dev/stdin'))
 
 const minZoom = 15
-const maxZoom = 18//21
+const maxZoom = 21
 
 // format is 'fbx' or 'skp'
 const format = 'fbx'
