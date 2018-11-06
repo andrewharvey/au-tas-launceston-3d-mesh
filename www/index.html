@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8' />
+    <title>Launceston 3D City Model</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <script src='https://api.tiles.mapbox.com/mapbox-gl-js/v0.51.0-beta.2/mapbox-gl.js'></script>
+    <link href='https://api.tiles.mapbox.com/mapbox-gl-js/v0.51.0-beta.2/mapbox-gl.css' rel='stylesheet' />
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/three.js/94/three.min.js'></script>
+    <script src='lib/DRACOLoader.js'></script>
+    <script src='lib/GLTFLoader.js'></script>
+    <style>
+        body { margin:0; padding:0; }
+        #map { position:absolute; top:0; bottom:0; width:100%; }
+        #controls { position:absolute; top:0; left:0; }
+    </style>
+</head>
+<body>
+<div id='map'></div>
+
+<script>
+var urlParams = new URLSearchParams(window.location.search);
+
+mapboxgl.accessToken = urlParams.get('access_token')
+var map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/satellite-streets-v9',
+    center: [147.1373496, -41.4340813],
+    zoom: 14.4,
+    pitch: 45
+});
+var LOD = 18;
+
+// converts from WGS84 Longitude, Latitude into a unit vector anchor at the top left as needed for GL JS custom layers
+var fromLL = function (lon,lat) {
+    // derived from https://gist.github.com/springmeyer/871897
+    var extent = 20037508.34;
+
+    var x = lon * extent / 180;
+    var y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
+    y = y * extent / 180;
+
+    return [(x + extent) / (2 * extent), 1 - ((y + extent) / (2 * extent))];
+}
+var translate = fromLL(147.13746027300363, -41.43548574172276);
+
+var transform = {
+    translateX: translate[0],
+    translateY: translate[1],
+    translateZ: 0,
+    rotateX: Math.PI / 2,
+    rotateY: 0,
+    rotateZ: 0,
+    scale: 0.0000000331843220338983
+}
+
+const THREE = window.THREE;
+
+function pad(n, width, z) {
+  z = z || '0';
+  n = n + '';
+  return n.length >= width ? n : new Array(width - n.length + 1).join(z) + n;
+}
+
+class CustomLayer {
+    constructor() {
+        this.id = 'custom_layer';
+        this.type = 'custom';
+        this.renderingMode = '3d';
+
+        this.camera = new THREE.Camera();
+        this.scene = new THREE.Scene();
+
+        var hemiLight = new THREE.HemisphereLight( 0xffffff, 0xffffff, 1 );
+        hemiLight.color.setHSL( 0.8, 1, 0.8 );
+        hemiLight.groundColor.setHSL( 0.095, 1, 0.75 );
+        hemiLight.position.set( 0, -1, 0 );
+        this.scene.add(hemiLight)
+        window.hemiLight = hemiLight;
+
+        var dirLight = new THREE.DirectionalLight( 0xffffff, 1 );
+        dirLight.color.setHSL( 1, 1, 1)
+        dirLight.position.set( 0, 1, 0 );
+        dirLight.position.multiplyScalar( 10 );
+        this.scene.add( dirLight );
+
+        var dirLight2 = new THREE.DirectionalLight( 0xffffff, 1 );
+        dirLight2.color.setHSL( 1, 1, 1)
+        dirLight2.position.set( 0, 2, 0 );
+        dirLight2.position.multiplyScalar( 10 );
+        this.scene.add( dirLight2 );
+
+        var loader = new THREE.GLTFLoader();
+        THREE.DRACOLoader.getDecoderModule();
+
+        loader.setDRACOLoader(new THREE.DRACOLoader());
+        for (var x = 3; x <= 15; x++) {
+            for (var y = 4; y <= 12; y++) {
+                var tile = 'gltf/Tile_' + pad(x, 3) + '_' + pad(y, 3) + '_L' + LOD + '/gltf.gltf';
+                loader.load(tile, (function (gltf) {
+                    this.scene.add(gltf.scene);
+                }).bind(this));
+            }
+        }
+    }
+
+    onAdd(map, gl) {
+        this.map = map;
+
+        this.renderer = new THREE.WebGLRenderer({
+            canvas: map.getCanvas(),
+            context: gl
+        });
+
+        this.renderer.autoClear = false;
+    }
+
+    render(gl, matrix) {
+        const rotationX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), transform.rotateX);
+        const rotationY = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 1, 0), transform.rotateY);
+        const rotationZ = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(0, 0, 1), transform.rotateZ);
+
+        const m = new THREE.Matrix4().fromArray(matrix);
+        const l = new THREE.Matrix4().makeTranslation(transform.translateX, transform.translateY, transform.translateZ)
+            .scale(new THREE.Vector3(transform.scale, -transform.scale, transform.scale))
+            .multiply(rotationX)
+            .multiply(rotationY)
+            .multiply(rotationZ);
+
+        this.camera.projectionMatrix.elements = matrix;
+        this.camera.projectionMatrix = m.multiply(l);
+        this.renderer.state.reset();
+        this.renderer.render(this.scene, this.camera);
+        this.map.triggerRepaint();
+    }
+}
+
+map.on('load', function() {
+    map.addLayer(new CustomLayer());
+});
+</script>
+
+</body>
+</html>
